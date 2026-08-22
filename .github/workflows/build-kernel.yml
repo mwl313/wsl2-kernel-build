@@ -28,7 +28,7 @@ jobs:
           REF="${{ inputs.kernel_ref || 'linux-msft-wsl-6.6.87.2' }}"
           git clone --depth 1 --branch "$REF" https://github.com/microsoft/WSL2-Linux-Kernel.git src
 
-      - name: Configure (WiFi modules + built-in firmware + usbip client)
+      - name: Configure (USB stack ON + WiFi modules + built-in firmware + usbip client)
         working-directory: src
         run: |
           cp Microsoft/config-wsl .config
@@ -40,7 +40,13 @@ jobs:
             wget -q "$BASE/rtl8192eu_nic.bin" -O firmware/rtlwifi/rtl8192eu_nic.bin
             FW_LIST="rtlwifi/rtl8188eufw.bin rtlwifi/rtl8192eu_nic.bin"
           fi
+          # CRITICAL: config-wsl ships WITHOUT the USB stack. Every USB driver
+          # (rtl8xxxu, usbip vhci_hcd) silently disappears at olddefconfig unless
+          # the USB core is enabled first. Enable the whole chain explicitly.
           scripts/config \
+            --enable CONFIG_USB_SUPPORT \
+            --enable CONFIG_USB_COMMON \
+            --enable CONFIG_USB \
             --enable CONFIG_EXTRA_FIRMWARE \
             --set-str CONFIG_EXTRA_FIRMWARE_DIR "$(pwd)/firmware" \
             --set-str CONFIG_EXTRA_FIRMWARE "$FW_LIST" \
@@ -52,6 +58,19 @@ jobs:
             --module CONFIG_USBIP_VHCI_HCD
           make olddefconfig
 
+      - name: Verify required options survived olddefconfig
+        working-directory: src
+        run: |
+          MISSING=0
+          for OPT in CONFIG_USB CONFIG_USB_COMMON CONFIG_CFG80211 CONFIG_MAC80211 CONFIG_RTL8XXXU CONFIG_USBIP_CORE CONFIG_USBIP_VHCI_HCD; do
+            if ! grep -qE "^${OPT}=(y|m)" .config; then
+              echo "::error::${OPT} was dropped by olddefconfig!"
+              MISSING=1
+            fi
+          done
+          grep -E "^CONFIG_(USB|USB_COMMON|CFG80211|MAC80211|RTL8XXXU|USBIP_CORE|USBIP_VHCI_HCD)=" .config
+          exit $MISSING
+
       - name: Build kernel and modules
         working-directory: src
         run: |
@@ -60,6 +79,18 @@ jobs:
           make -j"$(nproc)" > build.log 2>&1 || { tail -40 build.log; exit 1; }
           rm -rf modout
           make modules_install INSTALL_MOD_PATH="$PWD/modout"
+
+      - name: Verify built artifacts exist
+        working-directory: src
+        run: |
+          FOUND_RTL=$(find modout/lib/modules -name 'rtl8xxxu.ko*' | head -1)
+          FOUND_VHCI=$(find modout/lib/modules -name 'vhci-hcd.ko*' | head -1)
+          echo "rtl8xxxu: ${FOUND_RTL:-MISSING}"
+          echo "vhci-hcd: ${FOUND_VHCI:-MISSING}"
+          [[ -n "$FOUND_RTL" && -n "$FOUND_VHCI" ]] || {
+            echo "::error::required modules missing from build output"
+            exit 1
+          }
 
       - name: Package artifacts
         working-directory: src
@@ -70,18 +101,19 @@ jobs:
           cp arch/x86/boot/bzImage out/bzImage-wsl-st
           tar -C modout/lib/modules -czf "out/modules-${KVER}.tar.gz" .
           {
-            echo "MWL-SwitchTrade WSL2 kernel (${KVER}, WiFi rtl8xxxu + built-in firmware)"
+            echo "MWL-SwitchTrade WSL2 kernel (${KVER}, WiFi rtl8xxxu + USB stack + built-in firmware)"
             echo "Built by GitHub Actions."
             echo ""
             echo "Install steps:"
-            echo "1. Copy bzImage-wsl-st to C:\\Users\\<account>\\"
-            echo "2. In WSL2 terminal:"
-            echo "   sudo tar -xzf /mnt/c/Users/<account>/modules-${KVER}.tar.gz -C /"
-            echo "   sudo depmod -a ${KVER}"
-            echo "3. Create C:\\Users\\<account>\\.wslconfig:"
-            echo "     [wsl2]"
-            echo "     kernel=C:\\\\Users\\\\<account>\\\\bzImage-wsl-st"
-            echo "4. PowerShell: wsl --shutdown, reopen WSL, check uname -a (gate G1)"
+            echo "1. Copy bzImage-wsl-st to C:\\wsl-kernel\\"
+            echo "2. Copy modules-${KVER}.tar.gz to C:\\wsl-kernel\\"
+            echo "3. In WSL2 terminal:"
+            echo "   sudo rm -rf /lib/modules/*"
+            echo "   sudo tar -xzf /mnt/c/wsl-kernel/modules-${KVER}.tar.gz -C /"
+            echo "   sudo depmod -a \$(uname -r)"
+            echo "   sudo modprobe vhci_hcd"
+            echo "4. Windows PowerShell: usbipd attach --wsl --busid <BUSID>"
+            echo "5. Check uname -a matches this build date (gate G1)"
           } > out/README-install.txt
 
       - name: Upload artifacts
