@@ -1,0 +1,92 @@
+name: "Build WSL2 kernel - rtl8xxxu WiFi"
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_ref:
+        description: "WSL2-Linux-Kernel ref (tag/branch)"
+        required: false
+        default: "linux-msft-wsl-6.6.87.2"
+      include_8192eu:
+        description: "Include rtl8192eu firmware too"
+        type: boolean
+        required: false
+        default: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Install build deps
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y build-essential flex bison libssl-dev libelf-dev bc dwarves wget cpio kmod
+
+      - name: Fetch WSL2 kernel source
+        run: |
+          REF="${{ inputs.kernel_ref || 'linux-msft-wsl-6.6.87.2' }}"
+          git clone --depth 1 --branch "$REF" https://github.com/microsoft/WSL2-Linux-Kernel.git src
+
+      - name: Configure (WiFi modules + built-in firmware + usbip client)
+        working-directory: src
+        run: |
+          cp Microsoft/config-wsl .config
+          mkdir -p firmware/rtlwifi
+          BASE="https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/plain/rtlwifi"
+          wget -q "$BASE/rtl8188eufw.bin" -O firmware/rtlwifi/rtl8188eufw.bin
+          FW_LIST="rtlwifi/rtl8188eufw.bin"
+          if [[ "${{ inputs.include_8192eu }}" == "true" ]]; then
+            wget -q "$BASE/rtl8192eu_nic.bin" -O firmware/rtlwifi/rtl8192eu_nic.bin
+            FW_LIST="rtlwifi/rtl8188eufw.bin rtlwifi/rtl8192eu_nic.bin"
+          fi
+          scripts/config \
+            --enable CONFIG_EXTRA_FIRMWARE \
+            --set-str CONFIG_EXTRA_FIRMWARE_DIR "$(pwd)/firmware" \
+            --set-str CONFIG_EXTRA_FIRMWARE "$FW_LIST" \
+            --module CONFIG_CFG80211 \
+            --module CONFIG_MAC80211 \
+            --module CONFIG_RTL8XXXU \
+            --enable CONFIG_RTL8XXXU_UNTESTED \
+            --module CONFIG_USBIP_CORE \
+            --module CONFIG_USBIP_VHCI_HCD
+          make olddefconfig
+
+      - name: Build kernel and modules
+        working-directory: src
+        run: |
+          KVER=$(make kernelrelease)
+          echo "KVER=$KVER" >> "$GITHUB_ENV"
+          make -j"$(nproc)" > build.log 2>&1 || { tail -40 build.log; exit 1; }
+          rm -rf modout
+          make modules_install INSTALL_MOD_PATH="$PWD/modout"
+
+      - name: Package artifacts
+        working-directory: src
+        env:
+          KVER: ${{ env.KVER }}
+        run: |
+          mkdir -p out
+          cp arch/x86/boot/bzImage out/bzImage-wsl-st
+          tar -C modout/lib/modules -czf "out/modules-${KVER}.tar.gz" .
+          {
+            echo "MWL-SwitchTrade WSL2 kernel (${KVER}, WiFi rtl8xxxu + built-in firmware)"
+            echo "Built by GitHub Actions."
+            echo ""
+            echo "Install steps:"
+            echo "1. Copy bzImage-wsl-st to C:\\Users\\<account>\\"
+            echo "2. In WSL2 terminal:"
+            echo "   sudo tar -xzf /mnt/c/Users/<account>/modules-${KVER}.tar.gz -C /"
+            echo "   sudo depmod -a ${KVER}"
+            echo "3. Create C:\\Users\\<account>\\.wslconfig:"
+            echo "     [wsl2]"
+            echo "     kernel=C:\\\\Users\\\\<account>\\\\bzImage-wsl-st"
+            echo "4. PowerShell: wsl --shutdown, reopen WSL, check uname -a (gate G1)"
+          } > out/README-install.txt
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wsl2-kernel-run${{ github.run_number }}
+          path: src/out/*
+          retention-days: 90
