@@ -12,6 +12,11 @@ on:
         type: boolean
         required: false
         default: true
+      include_vendor_8188eu:
+        description: "Build the SimplyCEO rtl8188eus vendor module"
+        type: boolean
+        required: false
+        default: false
 
 jobs:
   build:
@@ -84,6 +89,18 @@ jobs:
           rm -rf modout
           make modules_install INSTALL_MOD_PATH="$PWD/modout" INSTALL_MOD_STRIP=1
 
+      - name: Build pinned RTL8188EU vendor module
+        if: ${{ inputs.include_vendor_8188eu == true }}
+        run: |
+          git clone https://github.com/SimplyCEO/rtl8188eus.git vendor-rtl8188eus
+          git -C vendor-rtl8188eus checkout b5f02e742fad6ae27d893ffae62d05e27374c0ed
+          make -C vendor-rtl8188eus \
+            KVER="$KVER" \
+            KSRC="$GITHUB_WORKSPACE/src" \
+            -j"$(nproc)"
+          test -s vendor-rtl8188eus/8188eu.ko
+          modinfo vendor-rtl8188eus/8188eu.ko
+
       - name: Verify built artifacts exist
         working-directory: src
         run: |
@@ -104,6 +121,10 @@ jobs:
           mkdir -p out
           cp arch/x86/boot/bzImage out/bzImage-wsl-st
           tar -C modout/lib/modules -czf "out/modules-${KVER}.tar.gz" .
+          if [[ -s ../vendor-rtl8188eus/8188eu.ko ]]; then
+            cp ../vendor-rtl8188eus/8188eu.ko out/8188eu-vendor.ko
+            sha256sum out/8188eu-vendor.ko > out/8188eu-vendor.ko.sha256
+          fi
           {
             echo "MWL-SwitchTrade WSL2 kernel (${KVER}, WiFi rtl8xxxu + USB stack + built-in firmware)"
             echo "Built by GitHub Actions."
@@ -119,6 +140,13 @@ jobs:
             echo "   sudo modprobe vhci_hcd"
             echo "4. Windows PowerShell: usbipd attach --wsl --busid <BUSID>"
             echo "5. Check uname -a matches this build date (gate G1)"
+            if [[ -s out/8188eu-vendor.ko ]]; then
+              echo ""
+              echo "Optional RTL8188EU vendor-driver experiment:"
+              echo "- 8188eu-vendor.ko was built from SimplyCEO/rtl8188eus"
+              echo "  commit b5f02e742fad6ae27d893ffae62d05e27374c0ed."
+              echo "- Do not install it over a working radio without preserving rollback."
+            fi
           } > out/README-install.txt
 
       - name: Upload artifacts
