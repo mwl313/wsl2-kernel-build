@@ -31,6 +31,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
+      - name: Check out build recipes and patches
+        uses: actions/checkout@v4
+
       - name: Install build deps
         run: |
           sudo apt-get update -y
