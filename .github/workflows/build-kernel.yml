@@ -82,7 +82,7 @@ jobs:
           echo "KVER=$KVER" >> "$GITHUB_ENV"
           make -j"$(nproc)" > build.log 2>&1 || { tail -40 build.log; exit 1; }
           rm -rf modout
-          make modules_install INSTALL_MOD_PATH="$PWD/modout"
+          make modules_install INSTALL_MOD_PATH="$PWD/modout" INSTALL_MOD_STRIP=1
 
       - name: Verify built artifacts exist
         working-directory: src
