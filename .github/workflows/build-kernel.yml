@@ -94,6 +94,7 @@ jobs:
         run: |
           git clone https://github.com/SimplyCEO/rtl8188eus.git vendor-rtl8188eus
           git -C vendor-rtl8188eus checkout b5f02e742fad6ae27d893ffae62d05e27374c0ed
+          git -C vendor-rtl8188eus apply ../patches/rtl8188eus-linux-6.18-netdev.patch
           make -C vendor-rtl8188eus \
             KVER="$KVER" \
             KSRC="$GITHUB_WORKSPACE/src" \

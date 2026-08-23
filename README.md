@@ -10,7 +10,8 @@ GitHub Actions가 microsoft/WSL2-Linux-Kernel을 받아 Wi-Fi 드라이버(rtl8x
 `include_vendor_8188eu=true`는 RTL8188EU의 WSL USB/IP firmware-start 문제를 진단하기 위한
 opt-in 실험이다. `SimplyCEO/rtl8188eus` commit
 `b5f02e742fad6ae27d893ffae62d05e27374c0ed`를 같은 kernel build tree에 대해 컴파일하고
+Linux 6.18의 netdev address bookkeeping에 맞춘 로컬 patch를 적용한 뒤
 `8188eu-vendor.ko`를 추가한다. 기본값은 false이며 G2~G4 실기 통과 전에는 배포 기본 드라이버가
-아니다.
+아니다. 원본 commit과 로컬 patch를 모두 고정하므로 같은 산출물을 재현할 수 있다.
 
 운영: 아리아 관리 (MWL-SwitchTrade 배포 트랙 α)
