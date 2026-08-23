@@ -93,6 +93,10 @@ jobs:
             --module CONFIG_MAC80211 \
             --module CONFIG_RTL8XXXU \
             --enable CONFIG_RTL8XXXU_UNTESTED \
+            --module CONFIG_TUN \
+            --module CONFIG_TAP \
+            --module CONFIG_CRYPTO_CCM \
+            --module CONFIG_CRYPTO_CMAC \
             --module CONFIG_USBIP_CORE \
             --module CONFIG_USBIP_VHCI_HCD
           for SPEC in $EXTRA_KERNEL_CONFIG; do
@@ -124,13 +128,13 @@ jobs:
         working-directory: src
         run: |
           MISSING=0
-          for OPT in CONFIG_USB CONFIG_USB_COMMON CONFIG_CFG80211 CONFIG_MAC80211 CONFIG_RTL8XXXU CONFIG_USBIP_CORE CONFIG_USBIP_VHCI_HCD; do
+          for OPT in CONFIG_USB CONFIG_USB_COMMON CONFIG_CFG80211 CONFIG_MAC80211 CONFIG_RTL8XXXU CONFIG_TUN CONFIG_TAP CONFIG_CRYPTO_CCM CONFIG_CRYPTO_CMAC CONFIG_USBIP_CORE CONFIG_USBIP_VHCI_HCD; do
             if ! grep -qE "^${OPT}=(y|m)" .config; then
               echo "::error::${OPT} was dropped by olddefconfig!"
               MISSING=1
             fi
           done
-          grep -E "^CONFIG_(USB|USB_COMMON|CFG80211|MAC80211|RTL8XXXU|USBIP_CORE|USBIP_VHCI_HCD)=" .config
+          grep -E "^CONFIG_(USB|USB_COMMON|CFG80211|MAC80211|RTL8XXXU|TUN|TAP|CRYPTO_CCM|CRYPTO_CMAC|USBIP_CORE|USBIP_VHCI_HCD)=" .config
           exit $MISSING
 
       - name: Build kernel and modules
@@ -190,7 +194,7 @@ jobs:
             echo "   sudo mkdir -p /lib/modules"
             echo "   sudo tar -xzf /mnt/c/wsl-kernel/modules-${KVER}.tar.gz -C /lib/modules"
             echo "   sudo depmod -a ${KVER}"
-            echo "   sudo apt-get install -y iw tcpdump usbutils wireless-regdb"
+            echo "   sudo apt-get install -y iw tcpdump usbutils wireless-regdb hostapd"
             echo "   sudo modprobe vhci_hcd"
             echo "4. Windows PowerShell: usbipd attach --wsl --busid <BUSID>"
             echo "5. Check uname -a matches this build date (gate G1)"
