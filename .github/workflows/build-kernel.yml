@@ -17,6 +17,14 @@ on:
         type: boolean
         required: false
         default: false
+      extra_kernel_config:
+        description: "Optional space-separated CONFIG_FOO=y|m|n entries"
+        required: false
+        default: ""
+      extra_firmware:
+        description: "Optional space-separated relative/path=url entries"
+        required: false
+        default: ""
 
 jobs:
   build:
@@ -35,6 +43,9 @@ jobs:
 
       - name: Configure (USB stack ON + WiFi modules + built-in firmware + usbip client)
         working-directory: src
+        env:
+          EXTRA_KERNEL_CONFIG: ${{ inputs.extra_kernel_config }}
+          EXTRA_FIRMWARE_SPECS: ${{ inputs.extra_firmware }}
         run: |
           cp Microsoft/config-wsl .config
           mkdir -p firmware/rtlwifi
@@ -49,6 +60,22 @@ jobs:
           wget -q "$REGDB_ROOT/regulatory.db" -O firmware/regulatory.db
           wget -q "$REGDB_ROOT/regulatory.db.p7s" -O firmware/regulatory.db.p7s
           FW_LIST="$FW_LIST regulatory.db regulatory.db.p7s"
+          for SPEC in $EXTRA_FIRMWARE_SPECS; do
+            PATH_PART="${SPEC%%=*}"
+            URL_PART="${SPEC#*=}"
+            [[ "$SPEC" == *=* && -n "$PATH_PART" && -n "$URL_PART" ]] || {
+              echo "::error::invalid extra firmware spec: $SPEC"
+              exit 1
+            }
+            [[ "$PATH_PART" != /* && "$PATH_PART" != *..* ]] || {
+              echo "::error::unsafe extra firmware path: $PATH_PART"
+              exit 1
+            }
+            mkdir -p "firmware/$(dirname "$PATH_PART")"
+            wget -q "$URL_PART" -O "firmware/$PATH_PART"
+            test -s "firmware/$PATH_PART"
+            FW_LIST="$FW_LIST $PATH_PART"
+          done
           # CRITICAL: config-wsl ships WITHOUT the USB stack. Every USB driver
           # (rtl8xxxu, usbip vhci_hcd) silently disappears at olddefconfig unless
           # the USB core is enabled first. Enable the whole chain explicitly.
@@ -65,7 +92,30 @@ jobs:
             --enable CONFIG_RTL8XXXU_UNTESTED \
             --module CONFIG_USBIP_CORE \
             --module CONFIG_USBIP_VHCI_HCD
+          for SPEC in $EXTRA_KERNEL_CONFIG; do
+            KEY="${SPEC%%=*}"
+            VALUE="${SPEC#*=}"
+            [[ "$KEY" =~ ^CONFIG_[A-Z0-9_]+$ ]] || {
+              echo "::error::invalid config symbol: $KEY"
+              exit 1
+            }
+            case "$VALUE" in
+              y) scripts/config --enable "$KEY" ;;
+              m) scripts/config --module "$KEY" ;;
+              n) scripts/config --disable "$KEY" ;;
+              *) echo "::error::invalid config value: $SPEC"; exit 1 ;;
+            esac
+          done
           make olddefconfig
+          for SPEC in $EXTRA_KERNEL_CONFIG; do
+            KEY="${SPEC%%=*}"
+            VALUE="${SPEC#*=}"
+            if [[ "$VALUE" == n ]]; then
+              grep -q "^# ${KEY} is not set" .config
+            else
+              grep -q "^${KEY}=${VALUE}" .config
+            fi || { echo "::error::olddefconfig changed $SPEC"; exit 1; }
+          done
 
       - name: Verify required options survived olddefconfig
         working-directory: src
