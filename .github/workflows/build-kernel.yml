@@ -34,15 +34,15 @@ jobs:
           cp Microsoft/config-wsl .config
           mkdir -p firmware/rtlwifi
           BASE="https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/plain/rtlwifi"
-          FW_ROOT="https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/plain"
+          REGDB_ROOT="https://git.kernel.org/pub/scm/linux/kernel/git/wens/wireless-regdb.git/plain"
           wget -q "$BASE/rtl8188eufw.bin" -O firmware/rtlwifi/rtl8188eufw.bin
           FW_LIST="rtlwifi/rtl8188eufw.bin"
           if [[ "${{ inputs.include_8192eu }}" == "true" ]]; then
             wget -q "$BASE/rtl8192eu_nic.bin" -O firmware/rtlwifi/rtl8192eu_nic.bin
             FW_LIST="rtlwifi/rtl8188eufw.bin rtlwifi/rtl8192eu_nic.bin"
           fi
-          wget -q "$FW_ROOT/regulatory.db" -O firmware/regulatory.db
-          wget -q "$FW_ROOT/regulatory.db.p7s" -O firmware/regulatory.db.p7s
+          wget -q "$REGDB_ROOT/regulatory.db" -O firmware/regulatory.db
+          wget -q "$REGDB_ROOT/regulatory.db.p7s" -O firmware/regulatory.db.p7s
           FW_LIST="$FW_LIST regulatory.db regulatory.db.p7s"
           # CRITICAL: config-wsl ships WITHOUT the USB stack. Every USB driver
           # (rtl8xxxu, usbip vhci_hcd) silently disappears at olddefconfig unless
